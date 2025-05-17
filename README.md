@@ -1,3 +1,7 @@
+# x-supporter
+
+x-supporter with ai
+
 # X 헬퍼 (X-Helper)
 
 X.com(구 Twitter)에서 AI 기반 답변을 제안해주는 크롬 확장 프로그램입니다.
