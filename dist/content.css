@@ -1,0 +1,52 @@
+/* X 헬퍼 콘텐츠 스크립트 스타일 */
+
+/* 컨텍스트 수집 버튼 스타일 */
+#x-helper-context-button {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 10px 15px;
+  background-color: #1d9bf0;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 9999;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+#x-helper-context-button:hover {
+  background-color: #1a8cd8;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+#x-helper-context-button:disabled {
+  background-color: #cfd9de;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+#x-helper-context-button::before {
+  content: "📋 ";
+  margin-right: 4px;
+}
+
+/* 토스트 메시지 스타일 */
+.x-helper-toast {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  padding: 10px 15px;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  border-radius: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  z-index: 10000;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+} 
