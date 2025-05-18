@@ -11,6 +11,7 @@ interface Settings {
   selectedTone: string;
   useCustomPrompt: boolean;
   customPrompt: string;
+  modelOptions?: string[];
 }
 
 interface LogEntry {
@@ -286,6 +287,7 @@ const Popup: React.FC = () => {
     selectedTone: "친근한",
     useCustomPrompt: false,
     customPrompt: "",
+    modelOptions: ['gpt-4o-mini', 'gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo'],
   });
   const [isLoading, setIsLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState("");
@@ -398,14 +400,31 @@ const Popup: React.FC = () => {
       await sendMessageToBackground('saveSettings', settings);
       setStatusMessage("설정이 저장되었습니다.");
       
-      // 설정 변경 알림
+      // 설정 변경 알림 - 개선된 오류 처리
       try {
+        // 현재 활성 탭이 X.com인지 확인
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tabs[0]?.id) {
-          await chrome.tabs.sendMessage(tabs[0].id, { action: "settingsUpdated" });
+          // 탭 URL이 X.com인 경우에만 메시지 전송 시도
+          const tabUrl = tabs[0].url || '';
+          if (tabUrl.includes('twitter.com') || tabUrl.includes('x.com')) {
+            // 메시지 전송 시 타임아웃 설정
+            const messagePromise = chrome.tabs.sendMessage(tabs[0].id, { action: "settingsUpdated" });
+            await Promise.race([
+              messagePromise,
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('알림 전송 타임아웃')), 1000)
+              )
+            ]);
+            console.log("설정 변경 알림 성공적으로 전송됨");
+          } else {
+            console.log("현재 탭이 X.com이 아니므로 알림 전송 생략");
+          }
         }
       } catch (error) {
-        console.warn("설정 변경 알림 실패:", error);
+        // 오류가 발생해도 설정 저장에는 영향 없음
+        console.log("설정 변경 알림 실패 (무시됨):", error);
+        // 사용자에게 오류를 표시하지 않음 - 이는 중요하지 않은 작업이므로
       }
       
       setTimeout(() => {
@@ -507,9 +526,24 @@ const Popup: React.FC = () => {
           <div className="form-group">
             <label htmlFor="model">AI 모델</label>
             <select id="model" name="model" value={settings.model} onChange={handleInputChange}>
-              <option value="gpt-3.5-turbo">GPT-3.5 Turbo (빠름)</option>
-              <option value="gpt-4">GPT-4 (더 정확함)</option>
-              <option value="gpt-4-turbo">GPT-4 Turbo (빠름 + 정확함)</option>
+              {settings.modelOptions ? (
+                // modelOptions가 있으면 그것을 사용
+                settings.modelOptions.map((model) => (
+                  <option key={model} value={model}>
+                    {model === 'gpt-4o-mini' ? 'GPT-4o-mini (추천)' :
+                     model === 'gpt-3.5-turbo' ? 'GPT-3.5 Turbo (빠름)' :
+                     model === 'gpt-4' ? 'GPT-4 (더 정확함)' :
+                     model === 'gpt-4-turbo' ? 'GPT-4 Turbo (빠름 + 정확함)' : model}
+                  </option>
+                ))
+              ) : (
+                // 기본 옵션 폴백
+                <>
+                  <option value="gpt-4o-mini">GPT-4o-mini (추천)</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (빠름)</option>
+                  <option value="gpt-4">GPT-4 (더 정확함)</option>
+                </>
+              )}
             </select>
           </div>
           

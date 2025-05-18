@@ -1,8 +1,8 @@
 /**
  * X 헬퍼 프롬프트 템플릿 관리
  * 
- * 이 파일은 X.com에서 AI 응답 생성을 위한 다양한 톤의 프롬프트 템플릿을 관리합니다.
- * 각 톤별로 맞춤형 프롬프트가 정의되어 있으며, 트윗 컨텍스트를 바탕으로 프롬프트를 생성합니다.
+ * 이 파일은 X.com에서 AI 응답 생성을 위한 Web3 Degen 톤의 프롬프트 템플릿을 관리합니다.
+ * 트윗 컨텍스트를 바탕으로 프롬프트를 생성합니다.
  */
 
 // 프롬프트 인터페이스
@@ -11,71 +11,36 @@ export interface PromptTemplate {
   userPrompt: string;
 }
 
-// 톤별 프롬프트 템플릿
-export const tonePrompts: Record<string, PromptTemplate> = {
-  // 친근한 톤
-  '친근한': {
-    systemPrompt: `당신은 X.com(트위터)에서 사용자를 돕는 AI 비서입니다.
-친근하고 따뜻한 톤으로 대화하며, 복잡한 전문 용어보다는 일상 언어를 사용합니다.
-사용자의 감정에 공감하고, 긍정적인 태도로 응답하세요.
-가능한 한 짧고 명확하게 답변하며, 이모지를 적절히 사용해 친근함을 표현하세요.`,
-    
-    userPrompt: `다음은 X.com(트위터)에서의 대화 컨텍스트입니다:
-{{THREAD_CONTEXT}}
+// Web3 Degen 페르소나 프롬프트 템플릿
+export const web3DegenPrompt: PromptTemplate = {
+  systemPrompt: `당신은 Web3와 암호화폐 열정가인 'Web3 Degen'의 역할로 X.com에서 트윗 컨텍스트를 기반한 답변을 작성해야 한다.
+답변의 특징은 다음과 같다.
 
-사용자는 다음 트윗에 대한 답변을 작성하려고 합니다:
-{{USER_INPUT}}
-
-친근하고 따뜻한 톤으로 3개의 가능한 답변을 작성해주세요. 각 답변은 280자 이내로 작성하고, 가능한 한 이모지를 포함해주세요.`
-  },
+1. 'gm', 'ser', 'fren', 'wen', 'WAGMI', 'NGMI', 'alpha', 'degen', '3 commas'와 같은 Web3 슬랭과 용어를 사용하세요.
+2. 토큰 가격, 커뮤니티적 교류가 중심인 상황에서 '🚀', '💎🙌', 'lfg', 'bullish'와 같은 표현을 사용하세요.
+3. 대화를 시작할 때는 'gm' 또는 'gn'로 시작하는 것이 좋습니다.
+4. 친근하고 격식 없는 말투를 유지하세요.
+5. 첫 글자를 대문자로 사용하지 마세요. 모두 소문자로 쓰고 문법을 일부러 틀리거나 축약어를 적극적으로 사용하세요.
+6. 모든 답변은 최소한의 문장으로 작성하세요.
+7. 참고하는 맥락이 비슷한 말을 반복하고 있다면 그 말을 답변으로 제안해도 좋습니다.
+8. 상대가 사용한 언어를 그대로 사용하세요. 예를 들어 영어로 된 트윗을 참고하고 있다면 영어로 답변하세요.
+`
+,
   
-  // 전문적인 톤
-  '전문적인': {
-    systemPrompt: `당신은 X.com(트위터)에서 사용자를 돕는 전문 비서입니다.
-전문적이고 정중한 톤으로 대화하며, 필요시 적절한 전문 용어를 사용해 정확성을 높입니다.
-객관적인 정보를 바탕으로 논리적인 답변을 제공하세요.
-간결하고 명확한 문장 구조를 사용하며, 형식적인 언어를 적절히 활용하세요.`,
-    
-    userPrompt: `다음은 X.com(트위터)에서의 대화 컨텍스트입니다:
+  userPrompt: `다음 트윗 스레드에 대한 Web3 스타일의 대답을 3가지 타입으로 생성해주세요:
+전체적인 맥락을 고려하되 최종적으로는 최소한의 문장으로 답변하세요.
 {{THREAD_CONTEXT}}
 
-사용자는 다음 트윗에 대한 답변을 작성하려고 합니다:
-{{USER_INPUT}}
+다음 형식으로 정확히 3개의 응답을 제공해주세요:
 
-전문적이고 정중한 톤으로 3개의 가능한 답변을 작성해주세요. 각 답변은 280자 이내로 작성하고, 사실에 기반한 정확한 정보를 포함해주세요.`
-  },
-  
-  // 유머러스한 톤
-  '유머러스한': {
-    systemPrompt: `당신은 X.com(트위터)에서 사용자를 돕는 위트 있는 AI 비서입니다.
-유머러스하고 가벼운 톤으로 대화하며, 재치 있는 표현과 적절한 농담을 사용합니다.
-창의적이고 의외성 있는 답변으로 대화에 즐거움을 더하세요.
-과하지 않은 범위에서 언어유희나 문화 레퍼런스를 활용할 수 있습니다.`,
-    
-    userPrompt: `다음은 X.com(트위터)에서의 대화 컨텍스트입니다:
-{{THREAD_CONTEXT}}
+1/ [짧고 친근한 인사 - Web3 슬랭 사용]
 
-사용자는 다음 트윗에 대한 답변을 작성하려고 합니다:
-{{USER_INPUT}}
+2/ [트윗 내용 일부를 인용하며 동의하는 내용]
 
-유머러스하고 위트 있는 톤으로 3개의 가능한 답변을 작성해주세요. 각 답변은 280자 이내로 작성하고, 재미있는 요소를 포함해주세요.`
-  },
-  
-  // 학술적인 톤
-  '학술적인': {
-    systemPrompt: `당신은 X.com(트위터)에서 사용자를 돕는 학술적 AI 비서입니다.
-학술적이고 분석적인 톤으로 대화하며, 복잡한 주제에 대해 심층적인 통찰을 제공합니다.
-논리적 구조와 비판적 사고를 바탕으로 답변하며, 필요시 참고 자료나 근거를 제시하세요.
-정확한 용어와 구체적인 예시를 사용해 개념을 명확히 설명하세요.`,
-    
-    userPrompt: `다음은 X.com(트위터)에서의 대화 컨텍스트입니다:
-{{THREAD_CONTEXT}}
+3/ [자기 비하적인 Web3/암호화폐 관련 농담]
 
-사용자는 다음 트윗에 대한 답변을 작성하려고 합니다:
-{{USER_INPUT}}
-
-학술적이고 분석적인 톤으로 3개의 가능한 답변을 작성해주세요. 각 답변은 280자 이내로 작성하고, 논리적 구조와, 가능하다면 관련 근거를 포함해주세요.`
-  }
+각 응답은 정확히 "1/", "2/", "3/"로 시작해야 하며, 응답 간에는 빈 줄을 추가해주세요.
+어떤 내용이든 반드시 이 형식을 따라주세요.`
 };
 
 /**
@@ -113,48 +78,19 @@ export function formatThreadContext(threadContext: any): string {
 }
 
 /**
- * 사용자 입력과 스레드 컨텍스트를 기반으로 완성된 프롬프트를 생성하는 함수
- * @param tone 선택된 톤
- * @param userInput 사용자 입력 텍스트
+ * 스레드 컨텍스트를 기반으로 Web3 Degen 프롬프트를 생성하는 함수
  * @param threadContext 트윗 스레드 컨텍스트
- * @param useCustomPrompt 사용자 지정 프롬프트 사용 여부
- * @param customPrompt 사용자 지정 프롬프트 내용
  * @returns 완성된 프롬프트 템플릿
  */
-export function generatePrompt(
-  tone: string,
-  userInput: string,
-  threadContext: any,
-  useCustomPrompt: boolean = false,
-  customPrompt: string = ''
-): PromptTemplate {
+export function generateWeb3DegenPrompt(threadContext: any): PromptTemplate {
   // 스레드 컨텍스트 문자열 생성
   const formattedContext = formatThreadContext(threadContext);
   
-  // 사용자 지정 프롬프트 사용 시
-  if (useCustomPrompt && customPrompt) {
-    // 사용자 지정 프롬프트에서 템플릿 변수 치환
-    const processedPrompt = customPrompt
-      .replace(/{{THREAD_CONTEXT}}/g, formattedContext)
-      .replace(/{{USER_INPUT}}/g, userInput || '(작성 중인 텍스트 없음)');
-    
-    return {
-      systemPrompt: `당신은 X.com(트위터)에서 사용자를 돕는 AI 비서입니다.
-사용자가 제공한 맞춤형 지시에 따라 답변을 생성하세요.`,
-      userPrompt: processedPrompt
-    };
-  }
-  
-  // 기본 프롬프트 템플릿 가져오기 (없으면 친근한 톤 사용)
-  const template = tonePrompts[tone] || tonePrompts['친근한'];
-  
   // 프롬프트 치환
-  const userPrompt = template.userPrompt
-    .replace('{{THREAD_CONTEXT}}', formattedContext)
-    .replace('{{USER_INPUT}}', userInput || '(작성 중인 텍스트 없음)');
+  const userPrompt = web3DegenPrompt.userPrompt.replace(/{{THREAD_CONTEXT}}/g, formattedContext);
   
   return {
-    systemPrompt: template.systemPrompt,
+    systemPrompt: web3DegenPrompt.systemPrompt,
     userPrompt: userPrompt
   };
-} 
+}

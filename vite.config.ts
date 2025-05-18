@@ -9,6 +9,7 @@ import manifest from './chrome-extension/src/manifest';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     {
@@ -60,7 +61,7 @@ export default defineConfig({
       },
       output: {
         entryFileNames: (chunk) => {
-          return chunk.name === 'background' 
+          return chunk.name === 'background' || chunk.name === 'content' || chunk.name === 'content-ui'
             ? '[name].js'
             : '[name]/index.[hash].js';
         },

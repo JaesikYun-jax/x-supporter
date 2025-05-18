@@ -28,18 +28,14 @@
         "https://twitter.com/*"
       ],
       "js": [
-        "content/index.DlUtw2gk.js"
-      ],
-      "css": [
-        "content.css"
-      ],
-      "run_at": "document_start"
+        "content.js"
+      ]
     }
   ],
   "web_accessible_resources": [
     {
       "resources": [
-        "content-ui/index.B1BDQIYS.js",
+        "content-ui.js",
         "icon16.svg",
         "icon48.svg",
         "icon128.svg"
@@ -54,8 +50,7 @@
     "storage",
     "scripting",
     "activeTab",
-    "clipboardWrite",
-    "tabs"
+    "clipboardWrite"
   ],
   "host_permissions": [
     "https://x.com/*",

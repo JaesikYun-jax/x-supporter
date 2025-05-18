@@ -1,6 +1,6 @@
 // 백그라운드 스크립트
 import { Storage } from '../../../packages/shared/storage';
-import { PromptTemplate, generatePrompt, tonePrompts } from './prompts';
+import { generateWeb3DegenPrompt } from './prompts';
 
 // 백그라운드 스크립트 활성 상태 관리
 const BackgroundState = {
@@ -201,9 +201,10 @@ interface ThreadContext {
 const defaultSettings = {
   isEnabled: true,
   apiKey: '',
-  model: 'gpt-3.5-turbo',
-  toneOptions: ['친근한', '전문적인', '유머러스한', '학술적인'],
-  selectedTone: '친근한',
+  model: 'gpt-4o-mini',
+  modelOptions: ['gpt-4o-mini', 'gpt-3.5-turbo', 'gpt-4'],
+  toneOptions: ['Web3 Degen'],
+  selectedTone: 'Web3 Degen',
   useCustomPrompt: false,
   customPrompt: '',
 };
@@ -254,8 +255,14 @@ const Logger = {
   // 팝업에 로그 업데이트 알림
   notifyLogUpdate(): void {
     try {
-      chrome.runtime.sendMessage({ action: 'logUpdated' });
+      chrome.runtime.sendMessage({ action: 'logUpdated' })
+        .catch(error => {
+          // 팝업이 열려있지 않으면 오류가 발생할 수 있으므로 무시
+          // Receiving end does not exist 오류는 정상적인 동작
+          console.debug('로그 업데이트 알림 실패 (팝업이 열려있지 않을 수 있음)');
+        });
     } catch (error) {
+      // 오류 무시 - 팝업이 열려있지 않은 경우 정상적인 동작
       // 팝업이 열려있지 않으면 오류가 발생할 수 있으므로 무시
       console.debug('로그 업데이트 알림 실패 (팝업이 열려있지 않을 수 있음)');
     }
@@ -558,227 +565,53 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       // API 응답 생성 함수
       const generateResponses = async () => {
         try {
-          // 프롬프트 생성 및 설정 가져오기
-          let userTone = data.tone || '친근한';
-          let userCustomPrompt = false;
-          let customPromptText = '';
+          // 설정 가져오기
+          const settings = await Storage.get('settings') as typeof defaultSettings || defaultSettings;
+          const apiKey = settings?.apiKey || '';
+          const modelName = settings?.model || 'gpt-3.5-turbo';
           
-          try {
-            const settingsData = await Storage.get('settings');
-            if (settingsData) {
-              const userSettings = settingsData as typeof defaultSettings;
-              userTone = data.tone || userSettings.selectedTone || '친근한';
-              userCustomPrompt = userSettings.useCustomPrompt || false;
-              customPromptText = userSettings.customPrompt || '';
-            }
-          } catch (error) {
-            Logger.addLog('설정 로드 중 오류 발생, 기본값 사용', 'warn', error);
-          }
+          // Web3 Degen 프롬프트 생성
+          const prompt = generateWeb3DegenPrompt(data.threadContext);
           
-          const prompt = generatePrompt(
-            userTone, 
-            data.tweetText, 
-            data.threadContext,
-            userCustomPrompt,
-            customPromptText
-          );
-          
-          Logger.addLog('프롬프트 생성 완료', 'info', {
-            tone: userTone,
-            customPrompt: userCustomPrompt,
+          Logger.addLog('Web3 Degen 프롬프트 생성 완료', 'info', {
             promptLength: prompt.userPrompt.length
           });
           
-          // 목업 응답 생성 - 스레드 컨텍스트 기반으로 개선
-          setTimeout(() => {
+          setTimeout(async () => {
             try {
-              let mockResponses = [];
+              let responses = [];
               
-              // 메인 트윗과 답장 대상 트윗이 있는지 확인
-              const hasMainTweet = data.threadContext?.mainTweet != null;
-              const hasReplyTarget = data.threadContext?.replyTarget != null;
-              
-              if (hasReplyTarget) {
-                // 답장 대상자의 사용자명
-                const targetUsername = data.threadContext.replyTarget.author.username || '';
+              // OpenAI API 호출
+              try {
+                Logger.addLog('OpenAI API 호출 시작', 'info');
                 
-                // 톤에 따른 응답 생성
-                if (userTone === '친근한') {
-                  mockResponses = [
-                    { 
-                      text: `${targetUsername} 네, 말씀해주신 내용에 동의합니다! 좋은 의견 감사해요 😊`, 
-                      type: 'friendly' 
-                    },
-                    { 
-                      text: `${targetUsername} 흥미로운 관점이네요~ 더 자세히 알려주실 수 있을까요? 🤔`, 
-                      type: 'curious' 
-                    },
-                    { 
-                      text: `${targetUsername} 좋은 지적이에요! 저도 비슷한 생각을 했었는데 공감되네요 👍`, 
-                      type: 'agree' 
-                    }
-                  ];
-                } else if (userTone === '전문적인') {
-                  mockResponses = [
-                    { 
-                      text: `${targetUsername} 귀하의 의견에 동의합니다. 해당 관점은 이 분야에서 중요한 시사점을 제공합니다.`, 
-                      type: 'professional' 
-                    },
-                    { 
-                      text: `${targetUsername} 흥미로운 관점입니다. 추가적인 데이터나 근거가 있으시면 논의를 더 발전시킬 수 있을 것 같습니다.`, 
-                      type: 'analytical' 
-                    },
-                    { 
-                      text: `${targetUsername} 정확한 지적입니다. 이 부분에 대해서는 최근 연구에서도 유사한 결론이 도출되었습니다.`, 
-                      type: 'informative' 
-                    }
-                  ];
-                } else if (userTone === '유머러스한') {
-                  mockResponses = [
-                    { 
-                      text: `${targetUsername} 당신 말이 너무 맞아서 제 키보드가 박수를 치려다 망가졌어요! 😂 완전 동의합니다!`, 
-                      type: 'funny' 
-                    },
-                    { 
-                      text: `${targetUsername} 그 의견은 피자처럼 완벽해요 - 아무리 접어도 맛있죠! 🍕 더 자세히 말해주실래요?`, 
-                      type: 'witty' 
-                    },
-                    { 
-                      text: `${targetUsername} 저도 그 생각을 하고 있었는데! 위대한 마음이 같이 움직인다고 하죠... 아니면 그냥 둘 다 멋진가요? 😎`, 
-                      type: 'playful' 
-                    }
-                  ];
-                } else if (userTone === '학술적인') {
-                  mockResponses = [
-                    { 
-                      text: `${targetUsername} 귀하의 주장은 상당히 설득력이 있습니다. 특히 이론적 관점에서 볼 때 기존 패러다임에 중요한 질문을 제기합니다.`, 
-                      type: 'scholarly' 
-                    },
-                    { 
-                      text: `${targetUsername} 흥미로운 가설입니다. 이 현상에 대한 체계적 분석을 위해서는 추가 데이터가 필요할 것으로 보입니다.`, 
-                      type: 'analytical' 
-                    },
-                    { 
-                      text: `${targetUsername} 해당 관점은 문헌에서 지지되는 바, Smith(2023)와 Johnson(2024)의 연구에서도 유사한 결론이 도출되었습니다.`, 
-                      type: 'referenced' 
-                    }
-                  ];
-                } else {
-                  // 기본 응답
-                  mockResponses = [
-                    { 
-                      text: `${targetUsername} 좋은 의견 감사합니다!`, 
-                      type: 'default' 
-                    },
-                    { 
-                      text: `${targetUsername} 흥미로운 관점이네요. 더 설명해주실 수 있나요?`, 
-                      type: 'curious' 
-                    },
-                    { 
-                      text: `${targetUsername} 동의합니다. 추가 의견이 있으시면 말씀해주세요.`, 
-                      type: 'agree' 
-                    }
-                  ];
-                }
-              } else {
-                // 기본 응답 (특정 대상이 없는 경우)
-                if (userTone === '친근한') {
-                  mockResponses = [
-                    { 
-                      text: '네, 말씀해주신 내용에 동의합니다! 좋은 의견 감사해요 😊', 
-                      type: 'friendly' 
-                    },
-                    { 
-                      text: '흥미로운 관점이네요~ 더 자세히 알려주실 수 있을까요? 🤔', 
-                      type: 'curious' 
-                    },
-                    { 
-                      text: '좋은 지적이에요! 저도 비슷한 생각을 했었는데 공감되네요 👍', 
-                      type: 'agree' 
-                    }
-                  ];
-                } else if (userTone === '전문적인') {
-                  mockResponses = [
-                    { 
-                      text: '귀하의 의견에 동의합니다. 해당 관점은 이 분야에서 중요한 시사점을 제공합니다.', 
-                      type: 'professional' 
-                    },
-                    { 
-                      text: '흥미로운 관점입니다. 추가적인 데이터나 근거가 있으시면 논의를 더 발전시킬 수 있을 것 같습니다.', 
-                      type: 'analytical' 
-                    },
-                    { 
-                      text: '정확한 지적입니다. 이 부분에 대해서는 최근 연구에서도 유사한 결론이 도출되었습니다.', 
-                      type: 'informative' 
-                    }
-                  ];
-                } else if (userTone === '유머러스한') {
-                  mockResponses = [
-                    { 
-                      text: '당신 말이 너무 맞아서 제 키보드가 박수를 치려다 망가졌어요! 😂 완전 동의합니다!', 
-                      type: 'funny' 
-                    },
-                    { 
-                      text: '그 의견은 피자처럼 완벽해요 - 아무리 접어도 맛있죠! 🍕 더 자세히 말해주실래요?', 
-                      type: 'witty' 
-                    },
-                    { 
-                      text: '저도 그 생각을 하고 있었는데! 위대한 마음이 같이 움직인다고 하죠... 아니면 그냥 둘 다 멋진가요? 😎', 
-                      type: 'playful' 
-                    }
-                  ];
-                } else if (userTone === '학술적인') {
-                  mockResponses = [
-                    { 
-                      text: '귀하의 주장은 상당히 설득력이 있습니다. 특히 이론적 관점에서 볼 때 기존 패러다임에 중요한 질문을 제기합니다.', 
-                      type: 'scholarly' 
-                    },
-                    { 
-                      text: '흥미로운 가설입니다. 이 현상에 대한 체계적 분석을 위해서는 추가 데이터가 필요할 것으로 보입니다.', 
-                      type: 'analytical' 
-                    },
-                    { 
-                      text: '해당 관점은 문헌에서 지지되는 바, 최근 연구에서도 유사한 결론이 도출되었습니다.', 
-                      type: 'referenced' 
-                    }
-                  ];
-                } else {
-                  // 기본 응답
-                  mockResponses = [
-                    { 
-                      text: '네, 말씀해주신 내용에 동의합니다. 좋은 의견 감사합니다!', 
-                      type: 'default' 
-                    },
-                    { 
-                      text: '흥미로운 관점이네요. 더 설명해주실 수 있나요?', 
-                      type: 'curious' 
-                    },
-                    { 
-                      text: '동의합니다. 추가 의견이 있으시면 말씀해주세요.', 
-                      type: 'agree' 
-                    }
-                  ];
-                }
+                // API 호출
+                const apiResponse = await callOpenAI(prompt, apiKey, modelName);
+                
+                // 응답 파싱
+                responses = parseFormattedResponses(apiResponse);
+                Logger.addLog('OpenAI 응답 파싱 완료', 'success', { 
+                  response_count: responses.length 
+                });
+              } catch (error) {
+                Logger.addLog('응답 생성 오류', 'error', error);
+                
+                // 오류 시 기본 응답 제공
+                responses = [
+                  { text: '응답 생성 중 오류가 발생했습니다. 다시 시도하거나 API 키 설정을 확인해주세요.', type: 'error' }
+                ];
               }
-              
-              // 디버깅용 프롬프트 정보 추가
-              mockResponses.push({
-                text: `// 프롬프트 정보: 톤=${userTone}, 길이=${prompt.userPrompt.length}자`,
-                type: 'debug'
-              });
-              
-              Logger.addLog('AI 응답 생성 완료', 'success', mockResponses);
               
               // 콘텐츠 스크립트 연결 확인 후 응답 전송
               ExtensionState.isContentScriptActive(tabId).then(isActive => {
                 if (isActive) {
-                  safeResponse(sendResponse, { responses: mockResponses });
+                  safeResponse(sendResponse, { responses: responses });
                 } else {
                   Logger.addLog('콘텐츠 스크립트 연결이 끊어졌습니다.', 'error');
                   safeResponse(sendResponse, { error: '콘텐츠 스크립트 연결이 끊어졌습니다.' });
                 }
               }).catch(() => {
-                safeResponse(sendResponse, { responses: mockResponses });
+                safeResponse(sendResponse, { responses: responses });
               });
             } catch (error) {
               Logger.addLog('응답 생성 중 오류 발생', 'error', error);
@@ -873,4 +706,133 @@ chrome.runtime.onSuspendCanceled.addListener(() => {
 });
 
 // 백그라운드 페이지 초기화 - 스크립트 로드 시 실행
-BackgroundState.keepAlive(); 
+BackgroundState.keepAlive();
+
+/**
+ * 번호가 매겨진 응답을 파싱하여 응답 유형별로 구분합니다.
+ * 형식: "1/ 인사말", "2/ 동의 답변", "3/ 농담 답변"
+ */
+function parseFormattedResponses(response: string): Array<{ text: string; type: string }> {
+  const results = [];
+  const lines = response.split('\n\n');
+  
+  try {
+    for (const line of lines) {
+      if (line.trim() === '') continue;
+      
+      if (line.startsWith('1/')) {
+        results.push({
+          text: line.substring(2).trim(),
+          type: 'greeting'
+        });
+      } else if (line.startsWith('2/')) {
+        results.push({
+          text: line.substring(2).trim(),
+          type: 'agreement'
+        });
+      } else if (line.startsWith('3/')) {
+        results.push({
+          text: line.substring(2).trim(),
+          type: 'joke'
+        });
+      } else {
+        // 예상치 못한 형식의 응답은 기본 타입으로 추가
+        console.warn('Unexpected response format:', line);
+        results.push({
+          text: line.trim(),
+          type: 'default'
+        });
+      }
+    }
+    
+    // 모든 응답 유형이 없는 경우 로깅
+    if (results.length === 0) {
+      console.error('응답 파싱 오류: 올바른 형식의 응답이 없습니다', response);
+    }
+    
+    return results;
+  } catch (error) {
+    console.error('응답 파싱 중 오류 발생:', error);
+    // 오류 발생 시 원본 텍스트를 기본 응답으로 반환
+    return [{
+      text: response,
+      type: 'error'
+    }];
+  }
+}
+
+/**
+ * OpenAI API를 호출하여 응답을 생성하는 함수
+ * @param prompt 프롬프트 객체
+ * @param apiKey OpenAI API 키
+ * @param model 사용할 모델 이름
+ * @returns 생성된 텍스트 응답
+ */
+async function callOpenAI(
+  prompt: { systemPrompt: string; userPrompt: string },
+  apiKey: string,
+  model: string = 'gpt-3.5-turbo'
+): Promise<string> {
+  try {
+    // API 키가 없는 경우 
+    if (!apiKey) {
+      throw new Error('OpenAI API 키가 설정되지 않았습니다.');
+    }
+    
+    // API 요청 설정
+    const requestBody = {
+      model: model,
+      messages: [
+        { role: 'system', content: prompt.systemPrompt },
+        { role: 'user', content: prompt.userPrompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000
+    };
+    
+    // Logger에 API 요청 내용 기록 (보안을 위해 prompt.systemPrompt 제외)
+    Logger.addLog('OpenAI API 요청', 'info', {
+      model: model,
+      prompt_length: prompt.userPrompt.length,
+      temperature: 0.7,
+      max_tokens: 1000
+    });
+    
+    // API 호출
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+    
+    // 응답 처리
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`OpenAI API 오류: ${errorData.error?.message || '알 수 없는 오류'}`);
+    }
+    
+    const data = await response.json();
+    const generatedText = data.choices[0]?.message?.content || '';
+    
+    // Logger에 API 응답 내용 기록
+    Logger.addLog('OpenAI API 응답 수신', 'success', {
+      response_length: generatedText.length,
+      usage: data.usage
+    });
+    
+    return generatedText;
+  } catch (error: any) {
+    // 오류 로깅
+    Logger.addLog('OpenAI API 오류', 'error', error.message);
+    
+    // 오류 시 더미 응답 반환
+    return `1/ API 오류로 응답을 생성할 수 없습니다. 설정에서 API 키를 확인해주세요!
+
+2/ "${error.message}"
+
+3/ 개발자에게 이 오류 메시지를 전달해주세요.`;
+  }
+} 

@@ -15,24 +15,23 @@ const manifest = {
     type: 'module',
   },
   action: {
-    default_popup: 'popup/index.html',
+    default_popup: 'pages/popup/index.html',
     default_icon: {
       16: 'icon16.svg',
       48: 'icon48.svg',
       128: 'icon128.svg',
     },
   },
-  options_page: 'options/index.html',
+  options_page: 'pages/options/index.html',
   content_scripts: [
     {
       matches: ['https://x.com/*', 'https://twitter.com/*'],
-      js: ['content/index.js'],
-      css: ['content/content.css'],
+      js: ['content.js']
     },
   ],
   web_accessible_resources: [
     {
-      resources: ['content-ui/index.js', 'icon16.svg', 'icon48.svg', 'icon128.svg'],
+      resources: ['content-ui.js', 'icon16.svg', 'icon48.svg', 'icon128.svg'],
       matches: ['https://x.com/*', 'https://twitter.com/*'],
     },
   ],

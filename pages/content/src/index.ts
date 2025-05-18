@@ -34,12 +34,12 @@ const extensionState = {
     let connected = false;
     
     try {
-      // 핑 테스트로 연결 확인 - 타임아웃 추가
+      // 핑 테스트로 연결 확인 - 타임아웃 증가
       const pingPromise = chrome.runtime.sendMessage({ action: 'ping' });
       const response = await Promise.race([
         pingPromise,
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Ping timeout')), 1000)
+          setTimeout(() => reject(new Error('Ping timeout')), 2000)
         )
       ]);
       
@@ -149,10 +149,10 @@ const extensionState = {
       clearInterval(this.connectionCheckInterval);
     }
     
-    // 10초마다 연결 상태 확인 (더 짧은 간격으로 변경)
+    // 30초마다 연결 상태 확인 (간격 증가)
     this.connectionCheckInterval = setInterval(() => {
       this.checkAndReconnect().catch(() => {});
-    }, 10000) as unknown as number;
+    }, 30000) as unknown as number;
   },
   
   // 정리 작업
@@ -221,7 +221,8 @@ async function addLog(message: string, type: 'info' | 'warn' | 'error' | 'succes
 async function sendMessageToBackground(action: string, data?: any): Promise<any> {
   // 오프라인 모드 체크
   if (extensionState.offlineMode) {
-    throw new Error('오프라인 모드: 백그라운드 스크립트와 통신할 수 없습니다.');
+    console.warn('오프라인 모드: 백그라운드 스크립트와 통신할 수 없습니다.');
+    return { error: '오프라인 모드' };
   }
   
   if (!extensionState.isContextValid) {
@@ -229,7 +230,8 @@ async function sendMessageToBackground(action: string, data?: any): Promise<any>
     const connected = await extensionState.checkAndReconnect();
     
     if (!connected || !extensionState.isContextValid) {
-      throw new Error('확장 프로그램 컨텍스트가 무효화되었습니다. 페이지를 새로고침해 주세요.');
+      console.warn('확장 프로그램 컨텍스트가 무효화되었습니다. 재연결을 시도합니다.');
+      return { error: '연결 끊김' };
     }
   }
   
@@ -246,22 +248,26 @@ async function sendMessageToBackground(action: string, data?: any): Promise<any>
     
     return response;
   } catch (error) {
-    console.error(`메시지 전송 오류 (${action}):`, error);
+    // Extension context invalidated 오류 또는 Receiving end does not exist 오류 처리
+    const errorMessage = error instanceof Error ? error.message : String(error);
     
-    // Extension context invalidated 오류 처리
-    if (error instanceof Error && 
-        (error.message.includes('Extension context invalidated') || 
-         error.message.includes('Receiving end does not exist'))) {
+    // 연결 관련 오류는 콘솔에만 경고로 표시하고 자동 재연결 시도
+    if (errorMessage.includes('Extension context invalidated') || 
+        errorMessage.includes('Receiving end does not exist')) {
       
+      console.warn(`메시지 전송 중 연결 오류 (${action}): ${errorMessage}`);
       extensionState.isContextValid = false;
       
       // 즉시 재연결 시도
       setTimeout(() => extensionState.checkAndReconnect(), 100);
       
-      throw new Error('확장 프로그램 컨텍스트가 무효화되었습니다. 페이지를 새로고침해 주세요.');
+      // 에러 대신 오류 객체 반환
+      return { error: '연결 오류', errorType: 'connection' };
     }
     
-    throw error;
+    // 기타 오류는 콘솔에 에러로 표시
+    console.error(`메시지 전송 오류 (${action}):`, error);
+    return { error: errorMessage, errorType: 'unknown' };
   }
 }
 
@@ -458,7 +464,7 @@ function insertHelperButton(composer: HTMLElement, composerId: string) {
     position: absolute;
     top: 0;
     left: 0;
-    transition: transform 0.2s ease;
+    transition: transform 0.2s ease, background-color 0.3s ease;
     pointer-events: auto; /* 버튼은 클릭 이벤트를 받음 */
   `;
   
@@ -480,6 +486,29 @@ function insertHelperButton(composer: HTMLElement, composerId: string) {
     isGeneratingResponse = true;
     await addLog('중복 요청 방지 플래그 설정', 'info');
     
+    // 로딩 상태 표시
+    const originalContent = helperButton.innerHTML;
+    helperButton.innerHTML = '<div class="x-helper-spinner"></div>';
+    helperButton.style.backgroundColor = '#0f84d0'; // 더 어두운 색상으로 변경
+    
+    // 스피너 스타일 추가
+    const style = document.createElement('style');
+    style.textContent = `
+      .x-helper-spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: white;
+        animation: x-helper-spin 0.8s linear infinite;
+      }
+      
+      @keyframes x-helper-spin {
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+    
     try {
       // 단계 2: 응답 생성 함수 호출
       await addLog('AI 응답 생성 함수 호출 시작', 'info');
@@ -487,9 +516,13 @@ function insertHelperButton(composer: HTMLElement, composerId: string) {
       await addLog('AI 응답 생성 함수 호출 완료', 'success');
     } catch (error) {
       await addLog('AI 응답 생성 중 오류 발생', 'error', error);
+      // 오류 발생 시 사용자에게 알림
+      alert('응답 생성 중 오류가 발생했습니다. 다시 시도해주세요.');
     } finally {
-      // 단계 7: 플래그 초기화
+      // 단계 7: 플래그 초기화 및 버튼 원래 상태로 복원
       isGeneratingResponse = false;
+      helperButton.innerHTML = originalContent;
+      helperButton.style.backgroundColor = '#1d9bf0'; // 원래 색상으로 복원
       await addLog('중복 요청 방지 플래그 초기화', 'info');
     }
   });
@@ -695,12 +728,44 @@ interface ThreadContext {
   };
 }
 
+// 트윗 컨텍스트를 사람이 읽기 쉬운 텍스트로 변환 (경량화 버전)
+function formatTweetThreadAsText(threadContext: ThreadContext): string {
+  let formattedText = '--- X 헬퍼: 트윗 스레드 컨텍스트 ---\n\n';
+  
+  // 1. 메인 트윗 정보 (필수 정보)
+  if (threadContext.mainTweet) {
+    const mainTweet = threadContext.mainTweet;
+    formattedText += `■ 메인 트윗 (${mainTweet.author.name} - ${mainTweet.author.username || '사용자명 없음'}):\n`;
+    formattedText += `${mainTweet.text}\n\n`;
+  }
+  
+  // 2. 답장 대상 트윗 정보 (필수 정보)
+  if (threadContext.replyTarget) {
+    const targetTweet = threadContext.replyTarget;
+    formattedText += `■ 답장 대상 트윗 (${targetTweet.author.name} - ${targetTweet.author.username || '사용자명 없음'}):\n`;
+    formattedText += `${targetTweet.text}\n\n`;
+  }
+  
+  // 3. 간소화된 스레드 정보 (트윗 수만 표시)
+  if (threadContext.collection_stats) {
+    const tweetCount = threadContext.collection_stats.found_tweets;
+    const replyCount = threadContext.intermediateReplies?.length || 0;
+    
+    if (replyCount > 0) {
+      formattedText += `※ 총 ${tweetCount}개의 트윗이 포함된 스레드`;
+      formattedText += replyCount > 0 ? ` (기타 답글 ${replyCount}개 포함)\n` : '\n';
+    }
+  }
+  
+  return formattedText;
+}
+
 // AI 응답 생성 요청
 async function generateResponses(composer: HTMLElement, composerId: string) {
   if (!extensionState.isContextValid) {
     console.warn('확장 프로그램 컨텍스트가 무효화되어 응답을 생성할 수 없습니다.');
     // 사용자에게 알림
-    alert('X 헬퍼 확장 프로그램 컨텍스트가 무효화되었습니다. 페이지를 새로고침해 주세요.');
+    alert('X 헬퍼 확장 프로그램 연결이 끊어졌습니다. 페이지를 새로고침해 주세요.');
     return;
   }
 
@@ -717,23 +782,14 @@ async function generateResponses(composer: HTMLElement, composerId: string) {
   });
   
   try {
-    // 단계 4-1: 수집된 컨텍스트를 클립보드에 복사 (개발/디버깅용)
+    // 단계 4-1: 수집된 컨텍스트를 사람이 읽기 쉬운 형태로 클립보드에 복사
     try {
-      const fullContext = {
-        user_input: tweetText,
-        thread_context: threadContext,
-        settings: {
-          tone: settings.selectedTone,
-          model: settings.model
-        },
-        timestamp: new Date().toISOString()
-      };
-      
-      const contextJSON = JSON.stringify(fullContext, null, 2);
+      // 사용자 친화적인 텍스트 형식으로 변환
+      const formattedThreadText = formatTweetThreadAsText(threadContext);
       
       // execCommand 사용하여 클립보드에 복사 (더 호환성이 좋음)
       const textarea = document.createElement('textarea');
-      textarea.value = contextJSON;
+      textarea.value = formattedThreadText;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
@@ -742,7 +798,7 @@ async function generateResponses(composer: HTMLElement, composerId: string) {
       document.body.removeChild(textarea);
       
       await addLog('컨텍스트가 클립보드에 복사되었습니다', 'success', {
-        context_size: contextJSON.length,
+        context_size: formattedThreadText.length,
         tweet_count: threadContext.collection_stats?.found_tweets || 0
       });
       
@@ -759,14 +815,19 @@ async function generateResponses(composer: HTMLElement, composerId: string) {
         border-radius: 4px;
         z-index: 10000;
         font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
       `;
-      toast.textContent = '트윗 컨텍스트가 클립보드에 복사되었습니다';
+      toast.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="white"/>
+      </svg> 클립보드에 복사되었습니다`;
       document.body.appendChild(toast);
       
       // 3초 후 토스트 제거
       setTimeout(() => {
         toast.style.opacity = '0';
-        toast.style.transition = 'opacity 0.5s';
+        toast.style.transition = 'opacity 0.5s ease';
         setTimeout(() => toast.remove(), 500);
       }, 3000);
     } catch (copyError) {
@@ -785,6 +846,48 @@ async function generateResponses(composer: HTMLElement, composerId: string) {
       threadContext,
       tone: settings.selectedTone,
     });
+    
+    // 오류 객체 확인 및 처리
+    if (response && response.error) {
+      // 연결 오류 처리
+      if (response.errorType === 'connection') {
+        await addLog('백그라운드 스크립트와 연결 끊김', 'warn', response);
+        
+        // 연결 오류 시 자동 재연결 시도
+        await extensionState.checkAndReconnect();
+        
+        // 사용자에게 메시지 표시
+        const reconnectToast = document.createElement('div');
+        reconnectToast.style.cssText = `
+          position: fixed;
+          bottom: 30px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(0, 0, 0, 0.8);
+          color: white;
+          padding: 10px 20px;
+          border-radius: 4px;
+          z-index: 10000;
+          font-size: 14px;
+        `;
+        reconnectToast.textContent = '백그라운드 연결 재시도 중... 잠시 후 다시 시도해주세요.';
+        document.body.appendChild(reconnectToast);
+        
+        // 5초 후 토스트 제거
+        setTimeout(() => {
+          reconnectToast.style.opacity = '0';
+          reconnectToast.style.transition = 'opacity 0.5s ease';
+          setTimeout(() => reconnectToast.remove(), 5000);
+        }, 5000);
+        
+        return;
+      } else {
+        // 다른 오류
+        await addLog('응답 생성 중 오류 발생', 'error', response);
+        alert('응답 생성 중 오류가 발생했습니다. 다시 시도해주세요.');
+        return;
+      }
+    }
     
     // 단계 6: 응답 표시
     if (response && response.responses) {
@@ -888,21 +991,55 @@ function getTweetThreadContext(): ThreadContext {
       }
     });
     
-    // 스레드 구조 분석 (가장 첫 번째는 메인 트윗, 가장 마지막은 답장 대상)
+    // 스레드 구조 분석 (수정된 로직)
     if (tweetDataArray.length > 0) {
       // 첫 번째 트윗을 메인 트윗으로 설정
       tweetDataArray[0].isMainTweet = true;
       context.mainTweet = tweetDataArray[0];
       
-      // 마지막 트윗을 답장 대상으로 설정
-      if (tweetDataArray.length > 1) {
-        const lastIndex = tweetDataArray.length - 1;
-        tweetDataArray[lastIndex].isTargetTweet = true;
-        context.replyTarget = tweetDataArray[lastIndex];
+      // 스레드 내 답장 대상 트윗 식별 로직 개선
+      // 현재 URL에서 트윗 ID 추출 (현재 보고 있는 트윗)
+      const currentUrl = window.location.href;
+      const currentTweetIdMatch = currentUrl.match(/\/status\/(\d+)/);
+      const currentTweetId = currentTweetIdMatch ? currentTweetIdMatch[1] : null;
+      
+      // 현재 보고 있는 트윗 또는 두 번째 트윗을 답장 대상으로 설정
+      let targetTweetIndex = 1; // 기본값: 두 번째 트윗 (첫 번째 답글)
+      
+      if (currentTweetId) {
+        // 현재 URL의 트윗 ID와 일치하는 트윗 찾기
+        const matchingIndex = tweetDataArray.findIndex(tweet => 
+          tweet.id.includes(currentTweetId)
+        );
         
-        // 중간 트윗들을 중간 답글로 설정
+        if (matchingIndex !== -1) {
+          targetTweetIndex = matchingIndex;
+        }
+      }
+      
+      // 범위 체크
+      if (targetTweetIndex >= 0 && targetTweetIndex < tweetDataArray.length) {
+        tweetDataArray[targetTweetIndex].isTargetTweet = true;
+        context.replyTarget = tweetDataArray[targetTweetIndex];
+        
+        // 중간 답글 설정 (메인 트윗과 타겟 트윗 사이의 모든 트윗)
+        const startIdx = 1; // 메인 트윗 다음부터
+        const endIdx = tweetDataArray.length; // 모든 트윗
+        
+        if (startIdx < endIdx) {
+          // 타겟 트윗을 제외한 모든 트윗을 중간 답글로 설정
+          context.intermediateReplies = tweetDataArray
+            .slice(startIdx, endIdx)
+            .filter((_, idx) => startIdx + idx !== targetTweetIndex);
+        }
+      } else if (tweetDataArray.length > 1) {
+        // 타겟 트윗을 찾지 못한 경우, 첫 번째 답글을 타겟으로 설정
+        tweetDataArray[1].isTargetTweet = true;
+        context.replyTarget = tweetDataArray[1];
+        
+        // 나머지 트윗들을 중간 답글로 설정
         if (tweetDataArray.length > 2) {
-          context.intermediateReplies = tweetDataArray.slice(1, lastIndex);
+          context.intermediateReplies = tweetDataArray.slice(2);
         }
       }
     }
@@ -981,7 +1118,7 @@ function truncateText(text: string, maxLength: number): string {
   return text.substring(0, maxLength) + '...';
 }
 
-// 응답 옵션 표시
+// 응답 옵션 표시 - 개선된 오버레이 UI
 async function displayResponseOptions(composer: HTMLElement, responses: Array<{ text: string, type: string }>) {
   // 이전 응답 옵션 제거
   const existingOptions = document.querySelector('.x-helper-options');
@@ -989,71 +1126,212 @@ async function displayResponseOptions(composer: HTMLElement, responses: Array<{ 
     existingOptions.remove();
   }
   
-  // 버튼 위치 가져오기
-  const helperButton = composer.querySelector('.x-helper-button-container');
-  if (!helperButton) {
-    console.error('헬퍼 버튼을 찾을 수 없습니다');
-    await addLog('헬퍼 버튼을 찾을 수 없습니다', 'error');
-    return;
-  }
+  // 오버레이 배경 생성 (전체 화면 덮기)
+  const overlay = document.createElement('div');
+  overlay.className = 'x-helper-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    animation: fadeIn 0.2s ease;
+  `;
   
-  const buttonRect = helperButton.getBoundingClientRect();
+  // 애니메이션 스타일 추가
+  const animationStyle = document.createElement('style');
+  animationStyle.textContent = `
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    
+    .x-helper-option:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(29, 155, 240, 0.2);
+    }
+  `;
+  document.head.appendChild(animationStyle);
   
-  // 옵션 컨테이너 생성
+  // 응답 컨테이너 생성
   const optionsContainer = document.createElement('div');
   optionsContainer.className = 'x-helper-options';
   optionsContainer.style.cssText = `
-    position: fixed;
-    top: ${buttonRect.top - 10}px;
-    left: ${buttonRect.left + 30}px;
     background-color: white;
-    border: 1px solid #cfd9de;
-    border-radius: 4px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-    width: 300px;
-    z-index: 10000;
-    max-height: 300px;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
     overflow-y: auto;
+    animation: slideUp 0.3s ease;
+    position: relative;
   `;
   
   // 제목 추가
   const title = document.createElement('div');
   title.innerText = '제안된 답변';
   title.style.cssText = `
-    padding: 12px 16px;
+    padding: 16px 20px;
     font-weight: bold;
-    border-bottom: 1px solid #cfd9de;
+    font-size: 16px;
+    border-bottom: 1px solid #ebeef0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    background-color: white;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    z-index: 1;
   `;
+  
+  // 닫기 버튼 추가
+  const closeButton = document.createElement('button');
+  closeButton.innerHTML = '×';
+  closeButton.style.cssText = `
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #536471;
+    line-height: 1;
+    padding: 0 6px;
+  `;
+  closeButton.addEventListener('click', async () => {
+    await addLog('사용자가 응답 옵션을 닫았습니다', 'info');
+    overlay.style.opacity = '0';
+    overlay.style.transition = 'opacity 0.2s ease';
+    setTimeout(() => overlay.remove(), 200);
+  });
+  title.appendChild(closeButton);
+  
   optionsContainer.appendChild(title);
+  
+  // 응답 유형 레이블 색상 매핑
+  const typeColors: {[key: string]: string} = {
+    greeting: '#1d9bf0',    // 파란색
+    agreement: '#00ba7c',   // 초록색
+    joke: '#8759f2'         // 보라색
+  };
   
   // 각 응답 옵션 추가
   responses.forEach((response, index) => {
     const option = document.createElement('div');
     option.className = 'x-helper-option';
-    option.innerText = response.text;
+    
+    // 응답 유형 레이블 생성
+    const typeLabel = document.createElement('div');
+    const typeName = response.type === 'greeting' ? '인사' : 
+                     response.type === 'agreement' ? '내용' : 
+                     response.type === 'joke' ? '유머' : '응답';
+    
+    typeLabel.innerText = typeName;
+    typeLabel.style.cssText = `
+      font-size: 12px;
+      font-weight: 600;
+      color: ${typeColors[response.type] || '#536471'};
+      margin-bottom: 8px;
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background-color: ${typeColors[response.type] ? `${typeColors[response.type]}15` : '#f7f9fa'};
+    `;
+    
+    // 응답 텍스트 컨테이너
+    const textContainer = document.createElement('div');
+    textContainer.innerText = response.text;
+    textContainer.style.cssText = `
+      line-height: 1.4;
+      color: #0f1419;
+    `;
+    
+    option.appendChild(typeLabel);
+    option.appendChild(textContainer);
+    
     option.style.cssText = `
-      padding: 12px 16px;
+      padding: 16px 20px;
       cursor: pointer;
       border-bottom: 1px solid #ebeef0;
-      transition: background-color 0.2s;
+      transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+      position: relative;
     `;
     
     // 응답 클릭 시 작성 영역에 삽입
     option.addEventListener('click', async () => {
-      await addLog('사용자가 응답 옵션을 선택했습니다', 'success', { optionIndex: index, text: response.text });
-      composer.textContent = response.text;
-      optionsContainer.remove();
+      await addLog('사용자가 응답 옵션을 선택했습니다', 'success', { optionIndex: index, type: response.type, text: response.text });
       
-      // 포커스 설정
-      composer.focus();
+      try {
+        // 클립보드에 복사
+        await navigator.clipboard.writeText(response.text);
+        
+        // 텍스트 복사 알림 토스트 표시
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+          position: fixed;
+          bottom: 30px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(0, 0, 0, 0.8);
+          color: white;
+          padding: 10px 20px;
+          border-radius: 4px;
+          z-index: 10000;
+          font-size: 14px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        `;
+        toast.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="white"/>
+        </svg> 클립보드에 복사되었습니다`;
+        document.body.appendChild(toast);
+        
+        // 3초 후 토스트 제거
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transition = 'opacity 0.5s ease';
+          setTimeout(() => toast.remove(), 500);
+        }, 3000);
+        
+        // 부드러운 사라짐 효과
+        overlay.style.opacity = '0';
+        overlay.style.transition = 'opacity 0.2s ease';
+        setTimeout(() => overlay.remove(), 200);
+      } catch (err) {
+        console.error('텍스트 복사 오류:', err);
+        alert('텍스트를 클립보드에 복사하지 못했습니다.');
+      }
       
-      // 커서를 텍스트 끝으로 이동
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(composer);
-      range.collapse(false);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
+      // 선택 효과 (사용자에게 피드백)
+      const flash = document.createElement('div');
+      flash.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(29, 155, 240, 0.15);
+        z-index: 9999;
+        pointer-events: none;
+      `;
+      document.body.appendChild(flash);
+      setTimeout(() => {
+        flash.style.opacity = '0';
+        flash.style.transition = 'opacity 0.5s ease';
+        setTimeout(() => flash.remove(), 500);
+      }, 100);
     });
     
     // 호버 효과
@@ -1061,45 +1339,52 @@ async function displayResponseOptions(composer: HTMLElement, responses: Array<{ 
       option.style.backgroundColor = '#f7f9fa';
     });
     option.addEventListener('mouseleave', () => {
-      option.style.backgroundColor = 'transparent';
+      option.style.backgroundColor = 'white';
     });
     
     optionsContainer.appendChild(option);
   });
   
-  // 닫기 버튼
-  const closeButton = document.createElement('div');
-  closeButton.innerText = '닫기';
-  closeButton.style.cssText = `
-    padding: 12px 16px;
+  // 작은 설명 추가
+  const footer = document.createElement('div');
+  footer.innerText = '답변을 클릭하면 자동으로 입력창에 삽입됩니다';
+  footer.style.cssText = `
+    padding: 12px 20px;
     text-align: center;
-    cursor: pointer;
-    color: #1d9bf0;
+    color: #536471;
+    font-size: 13px;
   `;
-  closeButton.addEventListener('click', async () => {
-    await addLog('사용자가 응답 옵션을 닫았습니다', 'info');
-    optionsContainer.remove();
+  optionsContainer.appendChild(footer);
+  
+  // 오버레이에 컨테이너 추가
+  overlay.appendChild(optionsContainer);
+  
+  // 오버레이를 body에 추가
+  document.body.appendChild(overlay);
+  await addLog('응답 옵션이 오버레이로 표시되었습니다', 'success', { optionCount: responses.length });
+  
+  // 오버레이 배경 클릭 시 닫기
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.style.opacity = '0';
+      overlay.style.transition = 'opacity 0.2s ease';
+      setTimeout(() => overlay.remove(), 200);
+      addLog('사용자가 오버레이 배경 클릭으로 응답 옵션을 닫았습니다', 'info');
+    }
   });
-  optionsContainer.appendChild(closeButton);
   
-  // 옵션 컨테이너를 body에 추가 (fixed 포지션이므로)
-  document.body.appendChild(optionsContainer);
-  await addLog('응답 옵션이 화면에 표시되었습니다', 'success', { optionCount: responses.length });
-  
-  // 클릭 이벤트 외부에서 옵션 닫기
-  const handleOutsideClick = (e: MouseEvent) => {
-    if (!optionsContainer.contains(e.target as Node) && 
-        !(e.target as Element).closest('.x-helper-button')) {
-      optionsContainer.remove();
-      document.removeEventListener('click', handleOutsideClick);
-      addLog('사용자가 외부 클릭으로 응답 옵션을 닫았습니다', 'info');
+  // ESC 키 누를 때 닫기
+  const handleEscKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      overlay.style.opacity = '0';
+      overlay.style.transition = 'opacity 0.2s ease';
+      setTimeout(() => overlay.remove(), 200);
+      addLog('사용자가 ESC 키로 응답 옵션을 닫았습니다', 'info');
+      document.removeEventListener('keydown', handleEscKey);
     }
   };
   
-  // 지연 시간을 두어 버튼 클릭 자체가 이벤트를 트리거하지 않도록 함
-  setTimeout(() => {
-    document.addEventListener('click', handleOutsideClick);
-  }, 100);
+  document.addEventListener('keydown', handleEscKey);
 }
 
 // 초기화 함수
